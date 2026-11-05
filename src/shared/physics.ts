@@ -102,7 +102,8 @@ export function stepWorld(w: World, dt: number, events: PhysicsEvent[]): void {
   }
 }
 
-function moveMallet(m: Body, target: Vec2, h: number): void {
+/** マレットを目標へ最大速度の範囲で h 秒ぶん動かす（ゲストの自マレット即時描画にも使う） */
+export function moveMallet(m: Body, target: Vec2, h: number): void {
   let dx = target.x - m.x;
   let dz = target.z - m.z;
   const dist = Math.hypot(dx, dz);

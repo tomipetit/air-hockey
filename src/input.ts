@@ -16,7 +16,7 @@ export class TouchInput {
   constructor(
     private el: HTMLElement,
     private camera: THREE.Camera,
-    private side: Side,
+    public side: Side,
     /** 指で隠れないよう、マレットを指より奥（相手側）にずらす量 */
     public touchOffset = 0.07,
   ) {

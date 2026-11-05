@@ -22,6 +22,9 @@ export type GameEvent =
   | { type: 'stall'; serveTo: Side }
   | { type: 'over'; winner: Side; score: [number, number] };
 
+/** 発生した tick（GameHost.tickCount）付きのイベント */
+export type TickedEvent = GameEvent & { tick: number };
+
 /**
  * 試合の進行と物理を持つ「正」のゲーム状態。
  * M1 では 1 台の中で動かし、M2 以降はホスト（P1）の端末で動かす。
@@ -31,6 +34,8 @@ export class GameHost {
   score: [number, number] = [0, 0];
   phase: Phase = 'countdown';
   winner: Side | null = null;
+  /** 進めた tick の累計。reset() でも戻さない（旧試合の遅延パケットを tick で弾くため） */
+  tickCount = 0;
 
   private acc = 0;
   private timer = 0;
@@ -61,17 +66,21 @@ export class GameHost {
   }
 
   /** 経過時間を渡すと固定ティックで進め、その間に起きたイベントを返す */
-  update(dt: number): GameEvent[] {
+  update(dt: number): TickedEvent[] {
+    const out: TickedEvent[] = [];
     const events: GameEvent[] = [];
     this.acc += Math.min(dt, 0.25);
     while (this.acc >= TICK_DT) {
       this.acc -= TICK_DT;
       this.tick(events);
+      for (const ev of events) out.push({ ...ev, tick: this.tickCount });
+      events.length = 0;
     }
-    return events;
+    return out;
   }
 
   private tick(events: GameEvent[]): void {
+    this.tickCount++;
     const physics: PhysicsEvent[] = [];
     stepWorld(this.world, TICK_DT, physics);
 

@@ -109,6 +109,25 @@ export class TableView {
     this.puck.position.set(world.puck.x, 0, world.puck.z);
   }
 
+  /** side 切替で作り直すときに呼ぶ。halo の登録解除と GPU リソースの解放 */
+  dispose(): void {
+    const haloTex = haloTexture();
+    this.root.traverse((o) => {
+      const i = halos.indexOf(o as THREE.Mesh);
+      if (i >= 0) halos.splice(i, 1);
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mats = mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : [];
+      for (const m of mats) {
+        const map = (m as THREE.MeshBasicMaterial).map;
+        // 共有の halo テクスチャは残す
+        if (map && map !== haloTex) map.dispose();
+        m.dispose();
+      }
+    });
+    this.railGlow.dispose();
+  }
+
   flashRails(amount = 1): void {
     this.railFlash = Math.max(this.railFlash, amount);
   }

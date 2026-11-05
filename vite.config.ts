@@ -1,4 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import pkg from './package.json' with { type: 'json' };
 
@@ -20,6 +21,9 @@ function threeImportMap(): Plugin {
   };
 }
 
+// 開発・preview 時は /ws をシグナリングサーバー（:8787）へ転送し、ブラウザからは同一オリジンに見せる
+const wsProxy = { '/ws': { target: 'http://127.0.0.1:8787', ws: true } };
+
 export default defineConfig(({ mode }) =>
   mode === 'artifact'
     ? {
@@ -32,7 +36,9 @@ export default defineConfig(({ mode }) =>
       }
     : {
         base: './',
-        server: { host: true },
+        plugins: mode === 'https' ? [basicSsl()] : [],
+        server: { host: true, proxy: wsProxy },
+        preview: { host: true, proxy: wsProxy },
         build: { chunkSizeWarningLimit: 900 },
       },
 );

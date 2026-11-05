@@ -16,8 +16,9 @@
   <button id="pause-btn" class="icon-btn" type="button" aria-label="一時停止">
     <span></span><span></span>
   </button>
-  <div class="score score-opp" aria-label="CPU の得点"><span class="who">CPU</span><span id="score-opp" class="num">0</span></div>
-  <div class="score score-me" aria-label="あなたの得点"><span id="score-me" class="num">0</span><span class="who">YOU</span></div>
+  <div class="score score-opp" aria-label="相手の得点"><span id="who-opp" class="who">CPU</span><span id="score-opp" class="num">0</span></div>
+  <div class="score score-me" aria-label="あなたの得点"><span id="score-me" class="num">0</span><span id="who-me" class="who">YOU</span></div>
+  <div id="net-status" class="net-status" role="status" hidden></div>
   <div id="center-text" class="center-text" aria-live="polite"></div>
   <div id="fps" class="fps" hidden></div>
 </div>
@@ -28,9 +29,43 @@
   <div class="panel">
     <h1 class="logo"><span class="logo-a">NEON</span><span class="logo-b">AIR HOCKEY</span></h1>
     <p class="tag">7 POINT MATCH · 1.0 × 2.0 TABLE</p>
-    <button id="start-btn" class="btn primary" type="button">CPU と練習する</button>
+    <button id="create-btn" class="btn primary" type="button">部屋を作る</button>
+    <button id="join-btn" class="btn" type="button">部屋に入る</button>
+    <button id="start-btn" class="btn" type="button">CPU と練習する</button>
     <div id="title-settings" class="settings"></div>
-    <p class="note">試作版（M1）：1台で CPU と対戦します。画面をなぞるとマレットが動きます。</p>
+    <p id="title-note" class="note">2 台対戦：片方が「部屋を作る」、もう片方が「部屋に入る」で 4 桁のコードを入力します。画面をなぞるとマレットが動きます。</p>
+  </div>
+</section>
+
+<section id="host-wait" class="screen" hidden>
+  <div class="panel">
+    <h2 class="panel-title">ROOM</h2>
+    <p id="room-code" class="room-code">----</p>
+    <canvas id="room-qr" class="room-qr" width="220" height="220" aria-label="招待用 QR コード"></canvas>
+    <p id="room-url" class="room-url"></p>
+    <button id="share-btn" class="btn" type="button" hidden>招待リンクを共有</button>
+    <p id="host-status" class="status" aria-live="polite"></p>
+    <p id="localhost-warning" class="note warn" hidden></p>
+    <button id="host-cancel-btn" class="btn" type="button">キャンセル</button>
+  </div>
+</section>
+
+<section id="join" class="screen" hidden>
+  <div class="panel">
+    <h2 class="panel-title">JOIN</h2>
+    <input id="code-input" class="code-input" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+           autocomplete="off" aria-label="4 桁のルームコード" placeholder="0000">
+    <button id="join-go-btn" class="btn primary" type="button">参加</button>
+    <p id="join-status" class="status" aria-live="polite"></p>
+    <button id="join-cancel-btn" class="btn" type="button">戻る</button>
+  </div>
+</section>
+
+<section id="net-msg" class="screen" hidden>
+  <div class="panel">
+    <h2 id="net-msg-title" class="panel-title">接続エラー</h2>
+    <p id="net-msg-text" class="net-msg-text"></p>
+    <button id="net-msg-ok" class="btn primary" type="button">タイトルへ</button>
   </div>
 </section>
 
@@ -48,6 +83,7 @@
   <div class="panel">
     <h2 id="result-title" class="panel-title result-title">YOU WIN</h2>
     <p id="result-score" class="result-score">7 – 3</p>
+    <p id="result-note" class="note result-note" hidden></p>
     <button id="again-btn" class="btn primary" type="button">もう一度</button>
     <button id="result-quit-btn" class="btn" type="button">タイトルへ</button>
   </div>
