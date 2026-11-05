@@ -63,3 +63,8 @@ server/
 ```
 
 `src/shared/` は DOM や Three.js に依存しません（`tsc -p server` で確認）。ネット関連モジュールは動的 import なので、Artifact 版には含まれません。
+
+## 既知の課題（M4 で対応予定）
+
+- P2P 対戦中に一度でもシグナリングの `peer_left` を受けると、その試合の間は 1.5 秒の受信途絶で切断扱いになる（`src/net/session.ts` の `peerLeftAt` が解除されない）。再接続（SPEC 7.5）の実装時に見直す。
+- `NetGuestDriver.onMatchStart` が E2E 用の `lastStateTick` をリセットしない（ゲーム表示には影響なし）。
