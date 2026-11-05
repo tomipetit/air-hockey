@@ -320,3 +320,65 @@ describe('RoomManager.leave', () => {
     expect(createdCode(b)).toBe('4242');
   });
 });
+
+describe('RoomManager.kickGuest', () => {
+  function pair() {
+    const rm = new RoomManager();
+    const h = peer();
+    rm.create(h, V);
+    const code = createdCode(h);
+    const g = peer();
+    rm.join(g, code, V, false);
+    return { rm, h, g, code };
+  }
+
+  it('ホストが kick するとゲストに kicked、ゲスト枠が空き別の人が join できる', () => {
+    const { rm, h, g, code } = pair();
+    const hostMsgs = h.msgs.length;
+    rm.kickGuest(h);
+    expect(g.last()).toEqual({ type: 'kicked' });
+    expect(rm.roomOf(g)).toBeNull();
+    expect(rm.roomOf(h)).toBe(code);
+    expect(rm.size).toBe(1);
+    // ホストには peer_left 等は送らない（自分で外したため）
+    expect(h.msgs.length).toBe(hostMsgs);
+    const g2 = peer();
+    rm.join(g2, code, V, false);
+    expect(g2.last()).toEqual({ type: 'joined', code });
+    expect(h.last()).toEqual({ type: 'peer_joined', forceRelay: false });
+  });
+
+  it('外されたゲストの signal/relay/leave はホストに届かない・影響しない', () => {
+    const { rm, h, g, code } = pair();
+    rm.kickGuest(h);
+    const n = h.msgs.length;
+    rm.signal(g, { kind: 'relay' });
+    rm.relay(g, new Uint8Array([1]));
+    rm.leave(g);
+    expect(h.msgs.length).toBe(n);
+    expect(h.bins).toHaveLength(0);
+    expect(rm.roomOf(h)).toBe(code);
+    // 外されたゲストは別の部屋を作れる
+    rm.create(g, V);
+    expect(g.last()?.type).toBe('room_created');
+  });
+
+  it('ゲストからの kick・ゲスト不在・未所属は何もしない', () => {
+    const { rm, h, g, code } = pair();
+    const hn = h.msgs.length;
+    const gn = g.msgs.length;
+    rm.kickGuest(g);
+    expect(rm.roomOf(g)).toBe(code);
+    expect(h.msgs.length).toBe(hn);
+    expect(g.msgs.length).toBe(gn);
+
+    const rm2 = new RoomManager();
+    const lone = peer();
+    rm2.create(lone, V);
+    const ln = lone.msgs.length;
+    expect(() => rm2.kickGuest(lone)).not.toThrow();
+    expect(lone.msgs.length).toBe(ln);
+    expect(() => rm2.kickGuest(peer())).not.toThrow();
+    expect(rm2.size).toBe(1);
+  });
+});

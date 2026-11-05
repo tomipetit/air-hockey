@@ -361,3 +361,16 @@ describe('シグナリング JSON の検証', () => {
     expect(parseServerMsg('{"type":"peer_left"}')).toEqual({ type: 'peer_left' });
   });
 });
+
+describe('kick_guest / kicked（中継失敗時のゲスト枠解放）', () => {
+  it('parseClientMsg が kick_guest を受理', () => {
+    expect(parseClientMsg('{"type":"kick_guest"}')).toEqual({ type: 'kick_guest' });
+  });
+  it('parseServerMsg が kicked を受理', () => {
+    expect(parseServerMsg('{"type":"kicked"}')).toEqual({ type: 'kicked' });
+  });
+  it('逆方向（クライアントからの kicked・サーバーからの kick_guest）は不正', () => {
+    expect(parseClientMsg('{"type":"kicked"}')).toBeNull();
+    expect(parseServerMsg('{"type":"kick_guest"}')).toBeNull();
+  });
+});

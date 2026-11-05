@@ -13,7 +13,7 @@ const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
 const PORT = Number(process.env.E2E_PORT || 8790);
 const BASE = `http://127.0.0.1:${PORT}`;
-const TOTAL_TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS || 180_000);
+const TOTAL_TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS || 240_000);
 const ONLY = process.env.E2E_ONLY ? process.env.E2E_ONLY.split(',') : null;
 
 fs.mkdirSync(OUT, { recursive: true });
@@ -82,6 +82,7 @@ async function newPage(name, opts = {}) {
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) =>
     r.fulfill({ status: 200, contentType: 'text/css', body: '' }),
   );
+  if (opts.init) await ctx.addInitScript(opts.init);
   if (opts.captureWs) {
     // テスト用に WebSocket を捕まえておき、生パケットを送れるようにする（不正 INPUT 注入用）
     await ctx.addInitScript(() => {
@@ -484,10 +485,11 @@ async function scenarioD() {
     await shot('D', { p1, p2 });
     const tClose = Date.now();
     await p1.close();
-    await waitVisible(p2, '#net-msg', 10_000, 'P2 net-msg after host closed');
+    await waitVisible(p2, '#net-msg', 4000, 'P2 net-msg after host closed (within 4s: peer_left + 1.5s grace)');
     const t2 = await text(p2, '#net-msg-text');
     notes.push(`D: guest notified ${Date.now() - tClose}ms after host page.close(): "${t2}"`);
     assert(/接続が切れました|部屋を閉じました/.test(t2), `host-closed text: ${t2}`);
+    assert(t2.includes('ホストが部屋を閉じました'), `host-closed text should come from peer_left (not 8s lost): ${t2}`);
     noErrors(p2, p3, p4);
   } catch (e) {
     await shot('D-fail', { p1, p2, p3, p4 });
@@ -510,7 +512,7 @@ async function scenarioE() {
     await goal(p1, p2, 2, [0, 1], [1, 0]);
     const t0 = Date.now();
     await p2.close();
-    await waitVisible(p1, '#net-msg', 10_000, 'P1 net-msg after guest closed');
+    await waitVisible(p1, '#net-msg', 4000, 'P1 net-msg after guest closed (within 4s: peer_left + 1.5s grace)');
     const t1 = await text(p1, '#net-msg-text');
     notes.push(`E: host notified ${Date.now() - t0}ms after guest page.close(): "${t1}"`);
     assert(t1.includes('相手との接続が切れました'), `guest-closed text: ${t1}`);
@@ -532,6 +534,128 @@ async function scenarioE() {
   }
 }
 
+/** F：中継の READY が来ない → ホストは待機に戻りゲスト枠を解放（kick_guest）、すぐ別の人が入れる */
+async function scenarioF() {
+  const h = await newPage('F-P1');
+  // P2 はバイナリ（ゲームパケット）を送れない：READY が届かない
+  const g = await newPage('F-P2', {
+    init: () => {
+      const orig = WebSocket.prototype.send;
+      WebSocket.prototype.send = function (d) {
+        if (typeof d !== 'string') return;
+        return orig.call(this, d);
+      };
+    },
+  });
+  const x = await newPage('F-P3');
+  const p1 = h.page;
+  const p2 = g.page;
+  const p3 = x.page;
+  try {
+    const code = await createRoom(p1);
+    await p2.goto(`${BASE}/?e2e&forceRelay&room=${code}`);
+    await waitSnap(p1, (s) => s.net && s.net.phase === 'negotiating', 5000, 'P1 negotiating');
+    const t0 = Date.now();
+    await waitText(p1, '#host-status', (t) => t.includes('接続に失敗しました'), 8000, 'P1 relay_failed status');
+    const failMs = Date.now() - t0;
+    const s1 = await snap(p1);
+    assert(s1.mode === 'hostWait' && s1.net.phase === 'waiting', `P1 should be back to waiting: ${JSON.stringify(s1.net)}`);
+    assert((await text(p1, '#room-code')) === code, 'room code should stay the same');
+    await waitVisible(p2, '#net-msg', 3000, 'P2 net-msg after kicked');
+    const t2 = await text(p2, '#net-msg-text');
+    assert(t2.includes('相手と接続できませんでした'), `kicked guest text: ${t2}`);
+    const kickedMs = Date.now() - t0;
+    // 直後に別の人が同じコードで参加できる（以前は 15 秒間 room_full）
+    await p3.goto(`${BASE}/?e2e&room=${code}`);
+    await bothReady(p1, p3, 'p2p', 10_000);
+    notes.push(`F: relay_failed ${failMs}ms after negotiating, guest kicked notice at ${kickedMs}ms, P3 joined OK`);
+    await goal(p1, p3, 1, [1, 0], [0, 1]);
+    // P2 はタイトルへ戻れる
+    await p2.locator('#net-msg-ok').click();
+    await waitSnap(p2, (s) => s.mode === 'title', 2000, 'P2 back to title');
+    noErrors(p1, p2, p3);
+  } catch (e) {
+    await shot('F-fail', { p1, p2, p3 });
+    throw e;
+  } finally {
+    for (const c of [h, g, x]) await c.ctx.close();
+  }
+}
+
+/** G：試合終了から 1.1 秒以内に再戦が始まっても、前の試合の結果画面が新しい試合に被らない */
+async function scenarioG() {
+  const h = await newPage('G-P1');
+  const g = await newPage('G-P2');
+  const p1 = h.page;
+  const p2 = g.page;
+  try {
+    const code = await createRoom(p1);
+    await p2.goto(`${BASE}/?e2e&room=${code}`);
+    await bothReady(p1, p2, 'p2p', 10_000);
+    for (let n = 1; n <= 6; n++) await goal(p1, p2, 1, [n, 0], [0, n]);
+    await waitSnap(p1, isPlaying, 10_000, 'host playing before last goal');
+    // ゲストは先に再戦希望を出しておく（結果画面のボタンを DOM 経由で押す）
+    await p2.evaluate(() => document.getElementById('again-btn').click());
+    await waitVisible(p1, '#result-note', 3000, 'P1 result-note (peer wants rematch)').catch(() => {});
+    await p1.evaluate(() => window.__ah.forceGoal(1));
+    await waitSnap(p1, (s) => s.phase === 'over', 3000, 'host over');
+    const tOver = Date.now();
+    // 結果画面が出る前（1.1 秒以内）にホストも「もう一度」
+    await p1.evaluate(() => document.getElementById('again-btn').click());
+    const restartMs = Date.now() - tOver;
+    assert(restartMs < 1000, `could not restart within 1.1s (${restartMs}ms)`);
+    await waitSnap(p1, (s) => s.phase === 'countdown' && s.mode === 'playing', 2000, 'host new match');
+    await sleep(1600); // 古いタイマー（1.1 秒）が発火する時間を過ぎる
+    for (const p of [p1, p2]) {
+      const s = await snap(p);
+      assert(s.mode === 'playing', `[${p.__name}] stale result screen shown on new match: mode=${s.mode}`);
+      assert(!(await p.locator('#result').isVisible()), `[${p.__name}] #result visible on new match`);
+    }
+    notes.push(`G: host rematch ${restartMs}ms after over; no stale result screen`);
+    noErrors(p1, p2);
+  } catch (e) {
+    await shot('G-fail', { p1, p2 });
+    throw e;
+  } finally {
+    await h.ctx.close();
+    await g.ctx.close();
+  }
+}
+
+/** H：膠着（サーブ後に誰も触らず 7 秒）→ 両端末で視点に合ったトースト */
+async function scenarioH() {
+  const h = await newPage('H-P1');
+  const g = await newPage('H-P2');
+  const p1 = h.page;
+  const p2 = g.page;
+  try {
+    const code = await createRoom(p1);
+    await p2.goto(`${BASE}/?e2e&room=${code}`);
+    await bothReady(p1, p2, 'p2p', 10_000);
+    const s0 = await waitSnap(p1, isPlaying, 6000, 'host playing');
+    const servedHalf = s0.puck.z > 0 ? 1 : 2;
+    // 両者とも触らない → サーブ位置で 7 秒停止 → 相手側（servedHalf の反対）から再開
+    const toast = async (p) =>
+      waitText(p, '#toast', (t) => t.startsWith('パックが止まったので'), 10_000, 'stall toast');
+    const [t1, t2] = await Promise.all([toast(p1), toast(p2)]);
+    const s1 = await snap(p1);
+    const restartHalf = s1.puck.z > 0 ? 1 : 2;
+    assert(restartHalf !== servedHalf, `stall should restart on the other half (served ${servedHalf}, now ${restartHalf})`);
+    const want1 = restartHalf === 1 ? 'あなたの陣地' : '相手の陣地';
+    const want2 = restartHalf === 2 ? 'あなたの陣地' : '相手の陣地';
+    assert(t1.includes(want1), `P1 stall toast "${t1}" should include ${want1}`);
+    assert(t2.includes(want2), `P2 stall toast "${t2}" should include ${want2}`);
+    notes.push(`H: stall restart half=${restartHalf}; P1="${t1}" P2="${t2}"`);
+    noErrors(p1, p2);
+  } catch (e) {
+    await shot('H-fail', { p1, p2 });
+    throw e;
+  } finally {
+    await h.ctx.close();
+    await g.ctx.close();
+  }
+}
+
 // ---------- main ----------
 async function main() {
   const scenarios = [
@@ -540,6 +664,9 @@ async function main() {
     ['C', scenarioC],
     ['D', scenarioD],
     ['E', scenarioE],
+    ['F', scenarioF],
+    ['G', scenarioG],
+    ['H', scenarioH],
   ].filter(([n]) => !ONLY || ONLY.includes(n));
   const server = startServer();
   let failed = 0;

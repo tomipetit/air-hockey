@@ -260,7 +260,7 @@ describe('NetGuestDriver', () => {
 
   it('自マレットはホスト応答を待たずに自陣内で即時移動（m2 で上書きしない）', () => {
     const { f, d } = setup();
-    f.deliver(st(100, { m2: { x: -0.3, z: -0.2 } }));
+    f.deliver(st(101, { m2: { x: -0.3, z: -0.2 } }));
     for (let i = 0; i < 30; i++) {
       now += 1000 / 60;
       d.update(TICK_DT, { x: 0.3, z: 0.5 });
@@ -272,7 +272,7 @@ describe('NetGuestDriver', () => {
 
   it('STATE で score / lastStateTick / phase を更新、補間でパックと相手マレットを描く', () => {
     const { f, d } = setup();
-    for (let t = 100; t < 160; t++) {
+    for (let t = 101; t < 160; t++) {
       f.deliver(st(t, { score: [2, 1] }));
       d.update(1 / 60, null);
       now += 1000 / 60;
@@ -285,20 +285,43 @@ describe('NetGuestDriver', () => {
     expect(d.world.mallets[0].x).toBeCloseTo(0.1, 6);
   });
 
-  it('前の試合の STATE（startTick 未満）は無視', () => {
-    const { f, d } = setup();
+  it('前の試合の STATE（tick ≤ startTick）は無視し、startTick+1 から受理する', () => {
+    const { f, d } = setup(); // startTick = 100
     f.deliver(st(50, { score: [5, 5] }));
     expect(d.lastStateTick).toBeNull();
+    // tick == startTick は前の試合の最後の STATE（ホストは reset で tickCount を戻さない）
+    f.deliver(st(100, { score: [7, 3], phase: 3 }));
+    expect(d.lastStateTick).toBeNull();
     expect(d.score).toEqual([0, 0]);
+    expect(d.phase).toBeNull();
+    expect(d.interp.newest).toBeNull();
+    f.deliver(st(101, { phase: 0 }));
+    expect(d.lastStateTick).toBe(101);
+    expect(d.phase).toBe('countdown');
+  });
+
+  it('再戦：match_start{200} の後に遅れて届いた前試合の最終 STATE(200) は無視、201 は受理', () => {
+    const { f, d } = setup();
+    for (let t = 101; t <= 200; t++) f.deliver(st(t, { score: [7, 2], phase: t === 200 ? 3 : 1 }));
+    f.deliver({ type: 'match_start', startTick: 200 });
+    // P2P の state チャネルは順不同：前の試合の最後の STATE が match_start の後に届く
+    f.deliver(st(200, { score: [7, 2], phase: 3 }));
+    expect(d.score).toEqual([0, 0]);
+    expect(d.phase).toBeNull();
+    expect(d.interp.newest).toBeNull();
+    f.deliver(st(201, { score: [0, 0], phase: 0 }));
+    expect(d.interp.newest!.tick).toBe(201);
+    expect(d.phase).toBe('countdown');
   });
 
   it('EVENT は補間表示の tick に追いついてから発火する', () => {
     const { f, d } = setup();
-    f.deliver(st(100));
-    d.update(0, null); // renderTick = 98
+    f.deliver(st(101)); // 新しい試合の最初の STATE（startTick+1）
+    d.update(0, null); // renderTick = 101 − 2 = 99
+    expect(d.renderTick).toBe(99);
     f.deliver({ type: 'event', tick: 103, ev: { kind: 'score', scorer: 1, score: [1, 0] } });
     const fired: number[] = [];
-    for (let t = 101; t <= 110; t++) {
+    for (let t = 102; t <= 110; t++) {
       now += 1000 / 60;
       f.deliver(st(t));
       const evs = d.update(1 / 60, null);
@@ -311,8 +334,9 @@ describe('NetGuestDriver', () => {
 
   it('STATE が途絶えても EVENT は 250ms 以内に発火する', () => {
     const { f, d } = setup();
-    f.deliver(st(100));
+    f.deliver(st(101));
     d.update(0, null);
+    expect(d.renderTick).toBe(99);
     f.deliver({ type: 'event', tick: 500, ev: { kind: 'over', winner: 2, score: [3, 7] } });
     now += 200;
     expect(d.update(0.2, null)).toHaveLength(0);
@@ -323,7 +347,8 @@ describe('NetGuestDriver', () => {
 
   it('match_start（再戦）で状態を初期化して matchStarted、古い tick を捨てる', () => {
     const { f, k, d } = setup();
-    for (let t = 100; t < 130; t++) f.deliver(st(t, { score: [1, 1] }));
+    for (let t = 101; t < 130; t++) f.deliver(st(t, { score: [1, 1] }));
+    expect(d.score).toEqual([1, 1]);
     f.deliver({ type: 'event', tick: 129, ev: { kind: 'start' } });
     f.deliver({ type: 'match_start', startTick: 200 });
     expect(k.h.started).toBe(2);

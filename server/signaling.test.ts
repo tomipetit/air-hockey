@@ -262,6 +262,31 @@ describe('attachSignaling（実ソケット）', () => {
     expect(await x.next()).toEqual({ type: 'error', code: 'room_not_found' });
   });
 
+  it('kick_guest：ゲストに kicked が届き、同じ部屋に別の人が入れる。ゲストからの kick_guest は無視', async () => {
+    const { h, g, code } = await pair();
+    await g.next((m) => m.type === 'joined');
+    await h.next((m) => m.type === 'peer_joined');
+    g.send({ type: 'kick_guest' }); // ゲストからは無効
+    await sleep(100);
+    expect(h.json).toHaveLength(0);
+    expect(g.json).toHaveLength(0);
+    h.send({ type: 'kick_guest' });
+    expect(await g.next()).toEqual({ type: 'kicked' });
+    expect(g.closed).toBe(false); // ソケット自体は切らない
+    const g2 = await client();
+    g2.send({ type: 'join_room', v: PROTO_VERSION, code });
+    expect(await g2.next()).toEqual({ type: 'joined', code });
+    expect(await h.next()).toEqual({ type: 'peer_joined', forceRelay: false });
+    // 外されたゲストの中継パケットはホストに届かない
+    g.ws.send(new Uint8Array([1, 2, 3]));
+    await sleep(100);
+    expect(h.bins).toHaveLength(0);
+    // 外されたゲストが切断してもホストに peer_left は来ない
+    g.ws.close();
+    await sleep(150);
+    expect(h.json).toHaveLength(0);
+  });
+
   it('GET /healthz が 200 ok', async () => {
     const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
       const req = request({ host: '127.0.0.1', port, path: '/healthz', method: 'GET' }, (r) => {
