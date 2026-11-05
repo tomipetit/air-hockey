@@ -14,6 +14,7 @@ import {
   GUEST_CONNECT_TIMEOUT_MS,
   LOST_MS,
   P2P_TIMEOUT_MS,
+  PEER_LEFT_GRACE_MS,
   PING_INTERVAL_MS,
   RELAY_READY_TIMEOUT_MS,
   SIGNAL_REPLY_TIMEOUT_MS,
@@ -83,6 +84,8 @@ export class NetSession {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   private lastRecvMs = 0;
+  /** P2P 対戦中に peer_left を受けた時刻（未受信は null） */
+  private peerLeftAt: number | null = null;
   private sawOffer = false;
 
   static host(opts: NetOptions): NetSession {
@@ -204,6 +207,10 @@ export class NetSession {
       case 'peer_left':
         this.onPeerLeft();
         return;
+      case 'kicked':
+        // ホストが接続失敗として部屋から外した
+        if (this.role === 'guest' && this.st.phase !== 'ready') this.close('connect_timeout');
+        return;
       case 'signal':
         this.onSignal(m.data);
         return;
@@ -219,6 +226,12 @@ export class NetSession {
 
   private onPeerLeft(): void {
     const phase = this.st.phase;
+    if (phase === 'ready' && this.st.kind === 'p2p') {
+      // P2P は DC が生きていれば継続。ただし Chromium はタブを閉じても DC の close が来ないことがあるので、
+      // 以後 PEER_LEFT_GRACE_MS 受信が無ければ切断扱いにする（watch() で判定）
+      if (this.peerLeftAt === null) this.peerLeftAt = performance.now();
+      return;
+    }
     if (this.role === 'host') {
       if (phase === 'negotiating') {
         this.dropRoute();
@@ -226,7 +239,7 @@ export class NetSession {
       } else if (phase === 'ready' && this.st.kind === 'relay') {
         this.close('lost');
       }
-      // waiting 中・P2P 対戦中は無視（P2P は生存監視に任せる）
+      // waiting 中は無視
     } else {
       if (phase === 'ready') {
         if (this.st.kind === 'relay') this.close('lost');
@@ -272,6 +285,8 @@ export class NetSession {
     this.setRouteTimer(RELAY_READY_TIMEOUT_MS, () => {
       // 中継でも READY が来ない → 待機に戻す
       this.dropRoute();
+      // サーバー上のゲスト枠を空け、別の人がすぐ参加できるようにする
+      this.sig.sendJson({ type: 'kick_guest' });
       this.update({ phase: 'waiting', kind: null, forcedRelay: false, notice: 'relay_failed' });
     });
   }
@@ -404,9 +419,15 @@ export class NetSession {
 
   private watch(): void {
     if (this.st.phase !== 'ready') return;
-    const idle = performance.now() - this.lastRecvMs;
+    const now = performance.now();
+    const idle = now - this.lastRecvMs;
     if (idle > LOST_MS) {
       this.close('lost');
+      return;
+    }
+    // P2P 中に相手がシグナリングから抜けた：DC も途絶えていれば（タブを閉じた等）早めに切断扱い
+    if (this.peerLeftAt !== null && now - this.peerLeftAt >= PEER_LEFT_GRACE_MS && idle >= PEER_LEFT_GRACE_MS) {
+      this.close('peer_left');
       return;
     }
     const unstable = idle > UNSTABLE_MS;

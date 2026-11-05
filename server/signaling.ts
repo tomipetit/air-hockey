@@ -78,6 +78,9 @@ export function attachSignaling(server: Server, opts: SignalingOptions = {}): Si
         case 'leave':
           rooms.leave(peer);
           break;
+        case 'kick_guest':
+          rooms.kickGuest(peer);
+          break;
       }
     });
 

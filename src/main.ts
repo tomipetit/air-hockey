@@ -80,6 +80,8 @@ const hud = new Hud(reducedMotion);
 
 type Mode = 'title' | 'hostWait' | 'join' | 'netMsg' | 'playing' | 'paused' | 'result';
 let mode: Mode = 'title';
+/** 試合の世代番号（matchStarted・タイトルへ戻るたびに増やす。遅延処理の無効化に使う） */
+let matchGen = 0;
 let driver: MatchDriver | null = null;
 let session: NetSession | null = null;
 /** タイトル等で背景に描く */
@@ -159,6 +161,7 @@ const hooks: DriverHooks = {
     resetResultButtons();
     show('playing');
     warmup = 2;
+    matchGen++;
     void requestWakeLock();
   },
   peerWantsRematch() {
@@ -169,6 +172,7 @@ const hooks: DriverHooks = {
 
 /** タイトルへ戻る（ネット対戦なら BYE を送って退出） */
 function goTitle(): void {
+  matchGen++;
   driver?.dispose();
   driver = null;
   if (session) {
@@ -267,6 +271,7 @@ function onSessionClosed(st: SessionStatus, reason: CloseReason): void {
   const interruptedScore: [number, number] | null =
     inMatch && d ? [d.score[me - 1], d.score[otherSide(me) - 1]] : null;
   const msg = closeMessage(reason, { role: st.role, code: st.code, interruptedScore });
+  matchGen++;
   driver?.dispose();
   driver = null;
   session = null;
@@ -450,16 +455,21 @@ function handle(ev: GameEvent): void {
       break;
     }
     case 'stall':
-      hud.toast('パックが止まったので相手側から再開します');
+      hud.toast(
+        ev.serveTo === local
+          ? 'パックが止まったのであなたの陣地から再開します'
+          : 'パックが止まったので相手の陣地から再開します',
+      );
       break;
     case 'over': {
       const win = ev.winner === local;
       ui.resultTitle.textContent = win ? 'YOU WIN' : 'YOU LOSE';
       ui.resultTitle.className = `panel-title result-title ${win ? 'win' : 'lose'}`;
       ui.resultScore.textContent = `${ev.score[local - 1]} – ${ev.score[opp - 1]}`;
-      const d = driver;
+      // 試合単位で無効化（その間にやり直し・再戦・退出があれば出さない）
+      const gen = matchGen;
       setTimeout(() => {
-        if (driver !== d) return;
+        if (gen !== matchGen) return;
         if (mode === 'playing' || (isNet() && mode === 'paused')) show('result');
       }, 1100);
       break;

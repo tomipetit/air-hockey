@@ -51,7 +51,9 @@ export class NetGuestDriver implements MatchDriver {
   }
 
   private onMatchStart(startTick: number): void {
-    this.interp.reset(startTick);
+    // startTick はホストが reset() した時点の tickCount = 前の試合の最終 tick。
+    // 新しい試合の STATE は startTick+1 からなので、tick == startTick（前の試合の最後の STATE）も弾く
+    this.interp.reset(startTick + 1);
     this.queue = [];
     this.world = createWorld();
     this.local = this.world.mallets[1];

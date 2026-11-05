@@ -80,6 +80,16 @@ export class RoomManager {
     this.other(p)?.sendBinary(data);
   }
 
+  /** ホストが交渉に失敗したゲストを外す（ゲストには kicked、ゲスト枠は空く）。ホスト以外・ゲスト不在なら何もしない */
+  kickGuest(p: Peer): void {
+    const room = this.byPeer.get(p);
+    if (!room || room.host !== p || !room.guest) return;
+    const guest = room.guest;
+    room.guest = null;
+    this.byPeer.delete(guest);
+    guest.send({ type: 'kicked' });
+  }
+
   leave(p: Peer): void {
     const room = this.byPeer.get(p);
     if (!room) return;

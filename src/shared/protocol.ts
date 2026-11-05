@@ -35,7 +35,9 @@ export type ClientMsg =
   | { type: 'create_room'; v: number }
   | { type: 'join_room'; v: number; code: string; forceRelay?: boolean }
   | { type: 'signal'; data: SignalData }
-  | { type: 'leave' };
+  | { type: 'leave' }
+  /** ホスト → サーバー：交渉に失敗したゲストを部屋から外す（待機に戻るとき。M2 設計への追加） */
+  | { type: 'kick_guest' };
 
 /** サーバー → クライアント */
 export type ServerMsg =
@@ -43,6 +45,8 @@ export type ServerMsg =
   | { type: 'joined'; code: string }
   | { type: 'peer_joined'; forceRelay: boolean }
   | { type: 'peer_left' }
+  /** サーバー → ゲスト：ホストが接続失敗として部屋から外した（M2 設計への追加） */
+  | { type: 'kicked' }
   | { type: 'signal'; data: SignalData }
   | { type: 'error'; code: SignalErrorCode };
 
@@ -111,6 +115,8 @@ export function parseClientMsg(text: string): ClientMsg | null {
     }
     case 'leave':
       return { type: 'leave' };
+    case 'kick_guest':
+      return { type: 'kick_guest' };
     default:
       return null;
   }
@@ -128,6 +134,8 @@ export function parseServerMsg(text: string): ServerMsg | null {
       return typeof o.forceRelay === 'boolean' ? { type: 'peer_joined', forceRelay: o.forceRelay } : null;
     case 'peer_left':
       return { type: 'peer_left' };
+    case 'kicked':
+      return { type: 'kicked' };
     case 'signal': {
       const data = parseSignalData(o.data);
       return data ? { type: 'signal', data } : null;

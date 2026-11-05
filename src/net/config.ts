@@ -10,6 +10,8 @@ export const GUEST_CONNECT_TIMEOUT_MS = 15000;
 export const PING_INTERVAL_MS = 1000;
 export const UNSTABLE_MS = 1500;
 export const LOST_MS = 8000;
+/** P2P 対戦中に peer_left を受けた後、DataChannel からの受信がこれだけ途絶えたら切断扱い */
+export const PEER_LEFT_GRACE_MS = 1500;
 /** 生存監視の周期 */
 export const WATCH_INTERVAL_MS = 250;
 
