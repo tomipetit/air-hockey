@@ -253,20 +253,6 @@ html, body {
   pointer-events: none;
 }
 
-.rotate-notice { display: none; }
-@media (orientation: landscape) and (pointer: coarse) and (max-height: 520px) {
-  .rotate-notice {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    display: grid;
-    place-items: center;
-    background: var(--bg);
-    font-size: 18px;
-    color: var(--ink);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .logo-a { animation: none; }
   .center-text.show { animation-duration: 1.2s; }
